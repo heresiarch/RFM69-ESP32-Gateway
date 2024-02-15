@@ -194,6 +194,19 @@ void setup() {
 
 uint32_t counter = 0;
 void loop() {
+
+  static uint32_t currentMillis = millis();
+
+  if (reconnectMqtt && currentMillis - lastReconnect > 5000) {
+    connectToMqtt();
+  }
+
+  static uint32_t lastMillis = 0;
+  if (currentMillis - lastMillis > 5000) {
+    lastMillis = currentMillis;
+    Serial.printf("heap: %u\n", ESP.getFreeHeap());
+  }
+
   if (radio.receiveDone()){
     if(radio.DATALEN == sizeof(sensorData)){
       memcpy(&sensorData, radio.DATA, sizeof(SensorData));  
