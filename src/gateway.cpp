@@ -1,16 +1,19 @@
 #include <RFM69.h>
 #include <RFM69_ATC.h>
 #include <WiFiManager.h>
-#include <ArduinoJson.h>
 #include <Preferences.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <mbedtls/base64.h>
+#include <esp_task_wdt.h>
+#include <esp_heap_caps.h>
 
 #define FREQUENCY     RF69_868MHZ
 #define IS_RFM69HW_HCW  //uncomment only for RFM69HW/HCW! Leave out if you have RFM69W/CW!
 #define SERIAL_BAUD   115200
+#define WDT_TIMEOUT 700
 
+uint8_t reconnectAttempts = 0;
 uint8_t nodeID = 100;
 uint8_t networkID = 200;
 char encryptKey[] = "1234567812345678";
@@ -28,9 +31,9 @@ void saveConfigCallback() {
 }
 
 RFM69 radio;
-StaticJsonDocument<512> doc;
-WiFiManager wm;
+char json_string[256];
 
+WiFiManager wm;
 WiFiClientSecure espClient;
 PubSubClient client(espClient);
 
@@ -47,43 +50,27 @@ typedef struct __attribute__((packed)) {
 
 SensorData sensorData = {};
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived in topic: ");
-  Serial.println(topic);
-  Serial.print("Message:");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-  Serial.println("-----------------------");
-}
-
-
 void reconnect() {
   while (!client.connected()) {
     Serial.println("Attempting MQTT connection...");
     if (client.connect("ESP32_clientID")) {
       Serial.println("connected");
+      reconnectAttempts = 0; // Reset the reconnect attempts counter
     } else {
-      delay(5000);
-    }
-  }
-}
-
-void connectmqtt()
-{
-  client.connect("wormhole");
-  {
-    Serial.println("connected to MQTT");
-    if (!client.connected())
-    {
-      reconnect();
+      reconnectAttempts++;
+      if (reconnectAttempts >= 5) {
+        Serial.println("Reconnect attempts reached maximum, rebooting...");
+        ESP.restart(); // Reboot ESP32
+      }
     }
   }
 }
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
+  // Move all dynamic allocations >512byte to psram (if available)
+  heap_caps_malloc_extmem_enable(512);
+
   wm.setWiFiAutoReconnect(true);
   wm.setSaveConfigCallback(saveConfigCallback);
   wm.setConfigPortalTimeout(600);
@@ -157,18 +144,16 @@ void setup() {
   espClient.setPrivateKey(mqttClientKey);    // for client verification
   client.setServer(prefs.getString("mqttServer").c_str(), prefs.getUInt("mqttPort"));
   client.setServer("192.168.178.3",8883);
-  client.setCallback(callback);
-  connectmqtt();
+  esp_task_wdt_init(WDT_TIMEOUT, true); //enable WDT
+  esp_task_wdt_add(NULL); //add current thread to WDT watch
  }
 
 
 
-
+uint32_t counter = 0;
 void loop() {
-  String topic = "";
-  wm.process();
-  if (!client.connected())
-  {
+  //wm.process();
+  if (!client.connected()){
     reconnect();
   }
   client.loop();
@@ -183,16 +168,16 @@ void loop() {
       Serial.println(sensorData.humidity);
       Serial.print("Battery: ");
       Serial.println(float(sensorData.batttery_voltage) / 100.0);
+      Serial.print("Counter: ");
+      Serial.println(counter);
       // Populate the JSON document
-      doc["id"] = sensorData.id;
-      doc["sensor_type"] = sensorData.sensortype;
-      doc["temperature"] = float(sensorData.temperature) / 100.0;  // Convert back to float
-      doc["humidity"] = sensorData.humidity;
-      doc["battery_voltage"] = float(sensorData.batttery_voltage) / 100.0;  // Convert back to float
-      String output;
-      serializeJson(doc, output);
-      client.publish("outTopic", output.c_str());
+      // will replace this with simple string functions
+      snprintf(json_string, sizeof(json_string), 
+        "{\"id\":%d,\"sensor_type\":%d,\"temperature\":%.2f,\"humidity\":%d,\"battery_voltage\":%.2f}",
+        sensorData.id, sensorData.sensortype, float(sensorData.temperature) / 100.0, sensorData.humidity, float(sensorData.batttery_voltage) / 100.0);
+      client.publish("outTopic", json_string);
+      counter++;
+      esp_task_wdt_reset();
     }
   }
-
 }   
