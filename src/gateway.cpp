@@ -7,6 +7,7 @@
 #include <mbedtls/base64.h>
 #include <esp_task_wdt.h>
 #include <esp_heap_caps.h>
+#include <WiFiUdp.h>
 
 #define FREQUENCY     RF69_868MHZ
 #define IS_RFM69HW_HCW  //uncomment only for RFM69HW/HCW! Leave out if you have RFM69W/CW!
@@ -105,6 +106,10 @@ void networkingTask() {
   }
 }
 
+const char * udpAddress = "192.168.178.46";
+const uint16_t udpPort = 3333;
+WiFiUDP udp;
+
 void setup() {
   Serial.begin(SERIAL_BAUD);
   // Move all dynamic allocations >512byte to psram (if available)
@@ -201,29 +206,31 @@ void loop() {
     connectToMqtt();
   }
 
-  static uint32_t lastMillis = 0;
-  if (currentMillis - lastMillis > 5000) {
-    lastMillis = currentMillis;
-    Serial.printf("heap: %u\n", ESP.getFreeHeap());
-  }
-
   if (radio.receiveDone()){
     if(radio.DATALEN == sizeof(sensorData)){
       memcpy(&sensorData, radio.DATA, sizeof(SensorData));  
-      Serial.print("ID: ");
-      Serial.println(sensorData.id);
-      Serial.print("Temperature: ");
-      Serial.println(float(sensorData.temperature) / 100.0);
-      Serial.print("Humidity: ");
-      Serial.println(sensorData.humidity);
-      Serial.print("Battery: ");
-      Serial.println(float(sensorData.batttery_voltage) / 100.0);
-      Serial.print("Counter: ");
+      //Serial.print("ID: ");
+      //Serial.println(sensorData.id);
+      //Serial.print("Temperature: ");
+      //Serial.println(float(sensorData.temperature) / 100.0);
+      //Serial.print("Humidity: ");
+      //Serial.println(sensorData.humidity);
+      //Serial.print("Battery: ");
+      //Serial.println(float(sensorData.batttery_voltage) / 100.0);
+      //Serial.print("Counter: ");
       Serial.println(counter);
       snprintf(json_string, sizeof(json_string), 
         "{\"id\":%d,\"sensor_type\":%d,\"temperature\":%.2f,\"humidity\":%d,\"battery_voltage\":%.2f}",
         sensorData.id, sensorData.sensortype, float(sensorData.temperature) / 100.0, sensorData.humidity, float(sensorData.batttery_voltage) / 100.0);
-      mqttClient.publish("outTopic",0,false,json_string);
+      uint16_t ret = mqttClient.publish("outTopic",2,false,json_string);
+      if(ret == 0){
+        Serial.println("Transmission failed");
+        reconnectMqtt = true;
+      }
+      udp.begin(udpPort);
+      udp.beginPacket(udpAddress,udpPort);
+      udp.printf("sec sinceboot: %lu, counter: %lu\n", millis()/1000, counter);
+      udp.endPacket();
       counter++;
       esp_task_wdt_reset();
     }
