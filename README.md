@@ -4,6 +4,5 @@ An illustrative example of an RFM69 ESP32 Gateway harnessing MQTT over TLS. This
 - document wiring of RFM69 and ESP32
 - harden code
 - decouple time critical radio receive task from mqtt publish using xTaskCreatePinnedToCore, ringbuffer and semaphore
-- reduce size of TLS certificates using elliptic curves
--  
+- reduce size of TLS certificates using elliptic curves 
 
