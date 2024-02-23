@@ -106,7 +106,7 @@ void networkingTask() {
   }
 }
 
-const char * udpAddress = "192.168.178.46";
+const char * udpAddress = "192.168.178.70";
 const uint16_t udpPort = 3333;
 WiFiUDP udp;
 
